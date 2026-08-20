@@ -7,27 +7,18 @@ import time
 import re
 
 # =========================================================
-# 1. SISTEMA DE USUARIOS Y ACCESO PRIVADO
+# 1. BASE DE USUARIOS AUTORIZADOS
 # =========================================================
-# Puedes cambiar los usuarios y contraseñas aquí:
-# Formato: ("nombre_de_usuario", "contraseña_segura")
 USERS_DATABASE = [
-    ("admin", "Admin2026*Pro"),      # Usuario administrador principal
-    ("creador", "VozPro2026!"),       # Usuario para miembros o clientes
-    ("estudio", "AudioStudio#77")     # Usuario secundario
+    ("admin", "Admin2026*Pro"),
+    ("creador", "VozPro2026!"),
+    ("estudio", "AudioStudio#77")
 ]
 
 # =========================================================
-# 2. LÍMITES DE SEGURIDAD (ANTI-COLAPSO DE SERVIDOR)
-# =========================================================
-MAX_CHARS_STANDARD = 5000   # Máximo 5.000 caracteres por guión regular
-MAX_CHARS_BOOK = 30000      # Máximo 30.000 caracteres para libros enteros
-
-# =========================================================
-# 3. CATÁLOGO DE VOCES NEURONALES HD
+# 2. CATÁLOGO DE VOCES NEURONALES HD
 # =========================================================
 VOICES = {
-    # 🇺🇸 Inglés Ultra-Realista Multilingüe
     "🇺🇸 Andrew Multilingual (Podcast / Cálida)": "en-US-AndrewMultilingualNeural",
     "🇺🇸 Jenny Multilingual (Conversacional / Expresiva)": "en-US-JennyMultilingualNeural",
     "🇺🇸 Ava Multilingual (Joven / Dinámica)": "en-US-AvaMultilingualNeural",
@@ -35,8 +26,6 @@ VOICES = {
     "🇺🇸 Emma Multilingual (Audiolibros / Suave)": "en-US-EmmaMultilingualNeural",
     "🇺🇸 Guy Neural (Casual / YouTube)": "en-US-GuyNeural",
     "🇺🇸 Aria Neural (Locución de Estudio)": "en-US-AriaNeural",
-    
-    # 🇲🇽 🇪🇸 🇨🇴 Voces en Español
     "🇲🇽 Dalia Neural (México / Expresiva)": "es-MX-DaliaNeural",
     "🇲🇽 Jorge Neural (México / Radio y Noticias)": "es-MX-JorgeNeural",
     "🇪🇸 Álvaro Neural (España / Corporativo)": "es-ES-AlvaroNeural",
@@ -53,19 +42,18 @@ SPEEDS = {
 }
 
 # =========================================================
-# MOTOR DE SÍNTESIS NEURONAL EN MEMORIA
+# MOTOR DE SÍNTESIS ROBUSTO
 # =========================================================
 async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0):
     if not text or not text.strip():
         return b""
     
-    safe_text = text.strip()[:MAX_CHARS_STANDARD]
     rate_str = f"{'+' if rate_val >= 0 else ''}{rate_val}%"
     pitch_str = f"{'+' if pitch_val >= 0 else ''}{pitch_val}Hz"
     vol_str = f"{'+' if volume_val >= 0 else ''}{volume_val}%"
     
     communicator = edge_tts.Communicate(
-        text=safe_text,
+        text=text.strip(),
         voice=voice_id,
         rate=rate_str,
         pitch=pitch_str,
@@ -80,24 +68,21 @@ async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0)
     return buffer.getvalue()
 
 # =========================================================
-# FUNCIONES DE CADA HERRAMIENTA
+# FUNCIONES PRINCIPALES
 # =========================================================
 
 # 1. Editor Principal
 async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, history):
     if not text or not text.strip():
-        return None, history, "⚠️ Escribe algún texto en el editor."
+        return None, history, "⚠️ Escribe algún texto antes de generar el audio."
     
-    if len(text) > MAX_CHARS_STANDARD:
-        text = text[:MAX_CHARS_STANDARD]
-        
     voice_id = VOICES.get(voice_label, "en-US-AndrewMultilingualNeural")
     speed_val = SPEEDS.get(speed_label, 0)
     
     try:
         audio_bytes = await core_synthesize(text, voice_id, speed_val, pitch_pref, vol_pref)
         if not audio_bytes:
-            return None, history, "⚠️ No se pudo generar el audio."
+            return None, history, "⚠️ No se pudo procesar el texto ingresado."
         
         filename = f"audio_script_{int(time.time())}.mp3"
         with open(filename, "wb") as f:
@@ -111,8 +96,8 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
     except Exception as e:
         return None, history, f"❌ Error: {str(e)}"
 
-# 2. Podcast Studio (2 Voces)
-async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, progress=gr.Progress()):
+# 2. Podcast Studio (Conexión directa y concatenación segura)
+async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
     if not script or not script.strip():
         return None, "⚠️ El guión de podcast está vacío."
     
@@ -122,71 +107,75 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, p
     
     lines = [l.strip() for l in script.strip().split("\n") if l.strip()]
     if not lines:
-        return None, "⚠️ No se detectaron líneas de diálogo válidas."
+        return None, "⚠️ No se encontraron líneas de diálogo válidas."
     
     final_audio = io.BytesIO()
-    total = min(len(lines), 50)  # Límite de seguridad: 50 turnos
-    progress(0, desc="Iniciando compilación del podcast...")
+    processed_count = 0
     
-    for i, line in enumerate(lines[:total]):
-        progress((i + 1) / total, desc=f"Procesando diálogo {i + 1} de {total}...")
-        
-        if ":" in line:
-            tag, content = line.split(":", 1)
-            content = content.strip()
-            if not content:
-                continue
-            
-            tag_low = tag.lower()
-            if any(k in tag_low for k in ["2", "guest", "invitado", "jenny", "locutor 2", "speaker 2"]):
-                selected_voice = voice_b
+    try:
+        for line in lines:
+            if ":" in line:
+                tag, content = line.split(":", 1)
+                content = content.strip()
+                if not content:
+                    continue
+                
+                tag_low = tag.lower()
+                if any(k in tag_low for k in ["2", "guest", "invitado", "jenny", "locutor 2", "speaker 2"]):
+                    selected_voice = voice_b
+                else:
+                    selected_voice = voice_a
             else:
+                content = line
                 selected_voice = voice_a
-        else:
-            content = line
-            selected_voice = voice_a
+                
+            chunk = await core_synthesize(content, selected_voice, speed_val)
+            if chunk:
+                final_audio.write(chunk)
+                processed_count += 1
             
-        chunk = await core_synthesize(content, selected_voice, speed_val)
-        if chunk:
-            final_audio.write(chunk)
+            await asyncio.sleep(0.05)  # Estabilidad de flujo
             
-    audio_data = final_audio.getvalue()
-    if not audio_data:
-        return None, "⚠️ Error: No se pudo compilar el podcast."
-        
-    filename = f"podcast_master_{int(time.time())}.mp3"
-    with open(filename, "wb") as f:
-        f.write(audio_data)
-        
-    return filename, f"✅ Podcast compilado ({total} intervenciones unificadas)."
+        audio_data = final_audio.getvalue()
+        if not audio_data:
+            return None, "⚠️ No se pudo ensamblar el audio del podcast."
+            
+        filename = f"podcast_master_{int(time.time())}.mp3"
+        with open(filename, "wb") as f:
+            f.write(audio_data)
+            
+        return filename, f"✅ Podcast compilado con éxito ({processed_count} diálogos procesados)."
+    except Exception as e:
+        return None, f"❌ Error durante la compilación: {str(e)}"
 
 # 3. Narración de Libros
-async def fn_book_narration(book_text, voice_label, speed_label, progress=gr.Progress()):
+async def fn_book_narration(book_text, voice_label, speed_label):
     if not book_text or not book_text.strip():
-        return None, "⚠️ Pega el contenido del libro o capítulo."
+        return None, "⚠️ Pega el contenido del libro o texto largo."
     
-    safe_text = book_text[:MAX_CHARS_BOOK]
     voice_id = VOICES.get(voice_label, "es-ES-ElviraNeural")
     speed_val = SPEEDS.get(speed_label, 0)
     
-    paragraphs = [p.strip() for p in safe_text.split("\n") if p.strip()]
+    paragraphs = [p.strip() for p in book_text.split("\n") if p.strip()]
     if not paragraphs:
-        return None, "⚠️ No se encontraron párrafos válidos."
+        return None, "⚠️ No hay texto para procesar."
         
     merged_audio = io.BytesIO()
-    total = len(paragraphs)
     
-    for i, p in enumerate(paragraphs):
-        progress((i + 1) / total, desc=f"Narrando párrafo {i + 1} de {total}...")
-        chunk = await core_synthesize(p, voice_id, speed_val)
-        if chunk:
-            merged_audio.write(chunk)
+    try:
+        for p in paragraphs:
+            chunk = await core_synthesize(p, voice_id, speed_val)
+            if chunk:
+                merged_audio.write(chunk)
+            await asyncio.sleep(0.05)
+                
+        filename = f"audiolibro_{int(time.time())}.mp3"
+        with open(filename, "wb") as f:
+            f.write(merged_audio.getvalue())
             
-    filename = f"audiolibro_capitulo_{int(time.time())}.mp3"
-    with open(filename, "wb") as f:
-        f.write(merged_audio.getvalue())
-        
-    return filename, f"✅ Audiolibro compilado: {total} párrafos procesados con éxito."
+        return filename, f"✅ Audiolibro compilado ({len(paragraphs)} párrafos)."
+    except Exception as e:
+        return None, f"❌ Error: {str(e)}"
 
 # 4. Locución para Video + Subtítulos .SRT
 async def fn_video_voiceover(text, voice_label, style_speed):
@@ -201,36 +190,39 @@ async def fn_video_voiceover(text, voice_label, style_speed):
     speed_val = speed_mapping.get(style_speed, 0)
     voice_id = VOICES.get(voice_label, "en-US-GuyNeural")
     
-    audio_bytes = await core_synthesize(text, voice_id, speed_val)
-    mp3_file = f"locucion_video_{int(time.time())}.mp3"
-    with open(mp3_file, "wb") as f:
-        f.write(audio_bytes)
-        
-    srt_file = f"subtitulos_{int(time.time())}.srt"
-    sentences = [s.strip() for s in re.split(r'(?<=[.?!])\s+', text) if s.strip()]
-    
-    srt_content = ""
-    start_sec = 0.0
-    for i, s in enumerate(sentences, 1):
-        duration = max(2.2, len(s) * 0.062)
-        end_sec = start_sec + duration
-        
-        def fmt_time(t):
-            hrs = int(t // 3600)
-            mins = int((t % 3600) // 60)
-            secs = int(t % 60)
-            milis = int((t - int(t)) * 1000)
-            return f"{hrs:02}:{mins:02}:{secs:02},{milis:03}"
+    try:
+        audio_bytes = await core_synthesize(text, voice_id, speed_val)
+        mp3_file = f"locucion_video_{int(time.time())}.mp3"
+        with open(mp3_file, "wb") as f:
+            f.write(audio_bytes)
             
-        srt_content += f"{i}\n{fmt_time(start_sec)} --> {fmt_time(end_sec)}\n{s}\n\n"
-        start_sec = end_sec
+        srt_file = f"subtitulos_{int(time.time())}.srt"
+        sentences = [s.strip() for s in re.split(r'(?<=[.?!])\s+', text) if s.strip()]
         
-    with open(srt_file, "w", encoding="utf-8") as f:
-        f.write(srt_content)
-        
-    return mp3_file, srt_file, "✅ Locución y subtítulos (.SRT) generados para edición."
+        srt_content = ""
+        start_sec = 0.0
+        for i, s in enumerate(sentences, 1):
+            duration = max(2.2, len(s) * 0.062)
+            end_sec = start_sec + duration
+            
+            def fmt_time(t):
+                hrs = int(t // 3600)
+                mins = int((t % 3600) // 60)
+                secs = int(t % 60)
+                milis = int((t - int(t)) * 1000)
+                return f"{hrs:02}:{mins:02}:{secs:02},{milis:03}"
+                
+            srt_content += f"{i}\n{fmt_time(start_sec)} --> {fmt_time(end_sec)}\n{s}\n\n"
+            start_sec = end_sec
+            
+        with open(srt_file, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+            
+        return mp3_file, srt_file, "✅ Locución y subtítulos (.SRT) generados."
+    except Exception as e:
+        return None, None, f"❌ Error: {str(e)}"
 
-# 5. Utilidades de Archivos
+# 5. Gestor de Archivos
 def get_all_media_files():
     files = [f for f in os.listdir(".") if f.endswith(".mp3") or f.endswith(".srt")]
     files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
@@ -248,7 +240,7 @@ def clear_all_media_files():
     return [], f"🧹 Se eliminaron {count} archivos temporales.", []
 
 # =========================================================
-# DISEÑO VISUAL (PURO BLANCO PROFESIONAL)
+# DISEÑO VISUAL
 # =========================================================
 custom_css = """
 :root, html, body, .dark, .gradio-container, .gradio-container * {
@@ -271,7 +263,6 @@ footer { visibility: hidden !important; }
     background-color: #f8fafc !important;
 }
 
-/* Sidebar */
 .sidebar-panel {
     width: 270px;
     background-color: #ffffff !important;
@@ -343,7 +334,6 @@ footer { visibility: hidden !important; }
     color: #0f172a !important;
 }
 
-/* Área Central */
 .content-area {
     flex-grow: 1;
     display: flex;
@@ -373,12 +363,6 @@ footer { visibility: hidden !important; }
     border-bottom: 1px solid #f1f5f9;
 }
 
-.top-bar-controls .block, .top-bar-controls select {
-    background-color: #ffffff !important;
-    border: 1px solid #cbd5e1 !important;
-    border-radius: 12px !important;
-}
-
 .btn-play-hero {
     background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
     border-radius: 50% !important;
@@ -397,21 +381,13 @@ footer { visibility: hidden !important; }
     justify-content: center !important;
     cursor: pointer !important;
     flex-shrink: 0 !important;
-    transition: all 0.2s ease !important;
 }
 
-.btn-play-hero:hover {
-    transform: scale(1.08) !important;
-    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45) !important;
-    background: linear-gradient(135deg, #4338ca 0%, #3730a3 100%) !important;
-}
-
-.custom-audio-player-top, .custom-audio-player-top .block {
+.custom-audio-player {
     background-color: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
     border-radius: 14px !important;
-    margin-bottom: 16px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02) !important;
+    margin-top: 14px !important;
 }
 
 .clean-editor textarea {
@@ -422,12 +398,6 @@ footer { visibility: hidden !important; }
     line-height: 1.6 !important;
     color: #0f172a !important;
     padding: 16px !important;
-    resize: none !important;
-}
-
-.clean-editor textarea:focus {
-    border-color: #4f46e5 !important;
-    outline: none !important;
 }
 
 .template-pill {
@@ -442,7 +412,7 @@ footer { visibility: hidden !important; }
 """
 
 # =========================================================
-# CONSTRUCCIÓN DE COMPONENTES
+# INTERFAZ DE USUARIO
 # =========================================================
 with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     
@@ -452,7 +422,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     
     with gr.Row(elem_classes=["app-layout"]):
         
-        # MENÚ LATERAL
+        # SIDEBAR
         with gr.Column(elem_classes=["sidebar-panel"], scale=0, min_width=260):
             gr.HTML("""
                 <div class="brand-header">
@@ -474,18 +444,18 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
             btn_nav_downloads = gr.Button("📥 Descargar MP3", elem_classes=["nav-btn"])
             btn_nav_settings = gr.Button("⚙️ Preferencias", elem_classes=["nav-btn"])
 
-        # VISTAS PRINCIPALES
+        # CONTENIDO PRINCIPAL
         with gr.Column(elem_classes=["content-area"]):
             
             # 1. Editor
             with gr.Column(visible=True, elem_classes=["card-box"]) as view_editor:
-                gr.Markdown("### 📝 Editor de Guión Principal")
+                gr.Markdown("### 📝 Editor de Guión")
                 with gr.Row(elem_classes=["top-bar-controls"]):
                     main_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Andrew Multilingual (Podcast / Cálida)", show_label=False, scale=3)
                     main_play_btn = gr.Button("▶", elem_classes=["btn-play-hero"])
                     main_speed = gr.Dropdown(choices=list(SPEEDS.keys()), value="1.0x (Normal)", show_label=False, scale=1)
                 
-                main_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player-top"])
+                main_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player"])
                 main_status = gr.Markdown("")
                 
                 main_text = gr.Textbox(
@@ -504,7 +474,6 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
             # 2. Proyectos
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_projects:
                 gr.Markdown("### 📂 Mis Proyectos Guardados")
-                gr.Markdown("Registro de audios sintetizados en esta sesión protegida:")
                 projects_list = gr.Dataframe(
                     headers=["Título / Resumen", "Voz Utilizada", "Archivo MP3", "Hora"],
                     datatype=["str", "str", "str", "str"],
@@ -518,9 +487,9 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 with gr.Row():
                     sample_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Jenny Multilingual (Conversacional / Expresiva)", label="Voz Neuronal", scale=3)
                     btn_test_voice = gr.Button("🔊 Escuchar Muestra", variant="primary", scale=1)
-                sample_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player-top"])
+                sample_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player"])
 
-            # 4. Podcast Studio
+            # 4. Podcast Studio (Reproductor ubicado directamente debajo del botón)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_podcast:
                 gr.Markdown("### 🎧 Podcast Studio (2 Voces Conversacionales)")
                 with gr.Row():
@@ -528,11 +497,8 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     pod_v2 = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Jenny Multilingual (Conversacional / Expresiva)", label="Locutor 2 (Invitado)")
                     pod_spd = gr.Dropdown(choices=list(SPEEDS.keys()), value="1.0x (Normal)", label="Velocidad")
                 
-                pod_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player-top"])
-                pod_status = gr.Markdown("")
-                
                 pod_text = gr.Textbox(
-                    label="Guión de Podcast",
+                    label="Guión de Podcast (Usa 'Locutor 1:' y 'Locutor 2:')",
                     lines=8,
                     value="Locutor 1: Welcome everyone to today's tech episode!\nLocutor 2: Thanks for having me Andrew! Today we are discussing neural speech models.\nLocutor 1: Exactly, and the results are truly astonishing."
                 )
@@ -542,20 +508,21 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     btn_pod_sample_es = gr.Button("🇲🇽 Cargar Ejemplo Español", elem_classes=["template-pill"])
                 
                 btn_gen_podcast = gr.Button("✨ Compilar Podcast Multi-Voz", variant="primary")
+                pod_status = gr.Markdown("")
+                pod_audio = gr.Audio(label="Audio del Podcast Completo", show_label=True, elem_classes=["custom-audio-player"])
 
             # 5. Libros
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_book:
-                gr.Markdown("### 📖 Narración de Libros y Capítulos Extensos")
+                gr.Markdown("### 📖 Narración de Libros y Textos Extensos")
                 with gr.Row():
                     book_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇪🇸 Elvira Neural (España / Narrativa)", label="Voz de Narrador")
                     book_speed = gr.Dropdown(choices=list(SPEEDS.keys()), value="1.0x (Normal)", label="Velocidad")
                 
-                book_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player-top"])
-                book_status = gr.Markdown("")
-                
-                book_text = gr.Textbox(label="Contenido del Libro", lines=9, placeholder="Pega aquí capítulos completos...")
+                book_text = gr.Textbox(label="Contenido del Libro", lines=8, placeholder="Pega aquí capítulos completos...")
                 btn_sample_book = gr.Button("📖 Cargar Texto de Muestra", elem_classes=["template-pill"])
                 btn_gen_book = gr.Button("📚 Generar Audiolibro Completo", variant="primary")
+                book_status = gr.Markdown("")
+                book_audio = gr.Audio(label="Audiolibro Completo", show_label=True, elem_classes=["custom-audio-player"])
 
             # 6. Video
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_video:
@@ -564,13 +531,12 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     vid_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Guy Neural (Casual / YouTube)", label="Voz de Locución")
                     vid_style = gr.Dropdown(choices=["⚡ Dinámico / YouTube (+15%)", "🗣️ Comercial / Estándar (0%)", "🎬 Documental / Pausado (-10%)"], value="⚡ Dinámico / YouTube (+15%)", label="Estilo de Locución")
                 
+                vid_text = gr.Textbox(label="Guión del Video", lines=5, value="In this video, I will show you how to generate realistic neural voiceovers in seconds. Make sure to hit that subscribe button!")
+                btn_gen_video = gr.Button("🎬 Generar Locución y Subtítulos .SRT", variant="primary")
+                vid_status = gr.Markdown("")
                 with gr.Row():
                     vid_audio = gr.Audio(label="Audio MP3", show_label=True)
-                    vid_srt = gr.File(label="Subtítulos Sincronizados (.SRT)")
-                vid_status = gr.Markdown("")
-                
-                vid_text = gr.Textbox(label="Guión del Video", lines=6, value="In this video, I will show you how to generate realistic neural voiceovers in seconds. Make sure to hit that subscribe button!")
-                btn_gen_video = gr.Button("🎬 Generar Locución y Subtítulos .SRT", variant="primary")
+                    vid_srt = gr.File(label="Subtítulos .SRT")
 
             # 7. Descargas
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_downloads:
@@ -584,14 +550,12 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
             # 8. Preferencias
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_settings:
                 gr.Markdown("### ⚙️ Preferencias y Modulación de Voz")
-                set_pitch = gr.Slider(minimum=-30, maximum=30, value=0, step=2, label="Modulación Global de Tono (Pitch en Hz)")
-                set_volume = gr.Slider(minimum=-50, maximum=50, value=0, step=5, label="Ganancia Global de Volumen (%)")
+                set_pitch = gr.Slider(minimum=-30, maximum=30, value=0, step=2, label="Modulación Global de Tono (Hz)")
+                set_volume = gr.Slider(minimum=-50, maximum=50, value=0, step=5, label="Ganancia de Volumen (%)")
                 btn_save_settings = gr.Button("💾 Guardar Preferencias", variant="primary")
                 set_status = gr.Markdown("")
 
-    # =========================================================
-    # NAVEGACIÓN ENTRE TABS
-    # =========================================================
+    # NAVEGACIÓN
     all_views = [view_editor, view_projects, view_voices, view_podcast, view_book, view_video, view_downloads, view_settings]
     
     def switch_tab(target_idx):
@@ -606,9 +570,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     btn_nav_downloads.click(fn=lambda: switch_tab(6), outputs=all_views)
     btn_nav_settings.click(fn=lambda: switch_tab(7), outputs=all_views)
 
-    # =========================================================
-    # EVENTOS DE ACCIÓN
-    # =========================================================
+    # EVENTOS
     main_play_btn.click(
         fn=fn_main_editor,
         inputs=[main_text, main_voice, main_speed, pref_pitch, pref_volume, project_history],
@@ -666,12 +628,10 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     )
 
 # =========================================================
-# SERVIDOR CON AUTENTICACIÓN Y COLA ANTI-BOTS
+# LANZAMIENTO DEL SERVIDOR
 # =========================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    # Cola que procesa de 2 en 2 para proteger los 512MB de RAM
-    demo.queue(max_size=30, default_concurrency_limit=2)
     demo.launch(
         server_name="0.0.0.0",
         server_port=port,
