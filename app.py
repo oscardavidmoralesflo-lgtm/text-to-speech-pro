@@ -188,7 +188,33 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
     except Exception as e:
         return None, history, f"❌ Error: {str(e)}"
 
-# 2. Podcast Studio
+# 2. Muestras de Voz (Catálogo)
+async def fn_test_voice_sample(voice_label):
+    if not voice_label:
+        return None, "⚠️ Selecciona una voz del menú desplegable."
+    
+    voice_id = resolve_voice_id(voice_label, "en-US-JennyNeural")
+    
+    # Texto de prueba adaptado al idioma de la voz seleccionada
+    if any(k in voice_id.lower() for k in ["es-", "dalia", "jorge", "alvaro", "elvira", "gonzalo", "salome"]):
+        sample_text = "Hola, esta es una prueba de entonación y claridad natural con tecnología neuronal HD."
+    else:
+        sample_text = "Hello! This is a sample demonstrating the natural inflection and clarity of this neural voice."
+    
+    try:
+        audio_bytes = await core_synthesize(sample_text, voice_id)
+        if not audio_bytes:
+            return None, "⚠️ No se pudo obtener el audio de muestra."
+        
+        filename = f"sample_voice_{int(time.time())}.mp3"
+        with open(filename, "wb") as f:
+            f.write(audio_bytes)
+            
+        return filename, f"✅ Muestra de **{voice_label}** generada con éxito."
+    except Exception as e:
+        return None, f"❌ Error al generar la muestra: {str(e)}"
+
+# 3. Podcast Studio
 async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, request: gr.Request):
     if not script or not script.strip():
         return None, "⚠️ El guión de podcast está vacío."
@@ -250,7 +276,7 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, r
     except Exception as e:
         return None, f"❌ Error durante la compilación: {str(e)}"
 
-# 3. Narración de Libros (PRO)
+# 4. Narración de Libros (PRO)
 async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Request):
     if not book_text or not book_text.strip():
         return None, "⚠️ Pega el contenido del libro o capítulo."
@@ -284,7 +310,7 @@ async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Req
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# 4. Locución para Video (PRO)
+# 5. Locución para Video (PRO)
 async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request):
     if not text or not text.strip():
         return None, None, "⚠️ Ingresa el guión para el video."
@@ -334,7 +360,7 @@ async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request
     except Exception as e:
         return None, None, f"❌ Error: {str(e)}"
 
-# 5. Gestor de Archivos
+# 6. Gestor de Archivos
 def get_all_media_files(request: gr.Request):
     is_admin, _, _ = check_user_access(request)
     files = [f for f in os.listdir(".") if f.endswith(".mp3") or f.endswith(".srt")]
@@ -427,7 +453,6 @@ footer { visibility: hidden !important; }
     color: #4f46e5 !important;
 }
 
-/* Tarjetas de Estado de Usuario */
 .account-card {
     border-radius: 12px;
     padding: 12px;
@@ -644,7 +669,6 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     </div>
                 """)
                 
-                # Componente visual para mostrar el estado del usuario logueado
                 account_status_view = gr.HTML()
                 
                 btn_nav_editor = gr.Button("📝 Nuevo Guión", elem_classes=["nav-btn"])
@@ -700,13 +724,14 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 )
                 btn_refresh_projects = gr.Button("🔄 Actualizar Tabla de Proyectos", variant="secondary")
 
-            # 3. Catálogo de Voces
+            # 3. Catálogo de Voces (Prueba de Muestras)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_voices:
                 gr.Markdown("### 🎙️ Catálogo de Voces Neuronales HD")
                 with gr.Row():
                     sample_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Jenny (Conversacional / Expresiva)", label="Voz Neuronal", scale=3)
                     btn_test_voice = gr.Button("🔊 Escuchar Muestra", variant="primary", scale=1)
-                sample_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player"])
+                sample_status = gr.Markdown("")
+                sample_audio = gr.Audio(label="Reproductor de Muestra", show_label=True, elem_classes=["custom-audio-player"])
 
             # 4. Podcast Studio (Máximo 10 minutos para invitados)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_podcast:
@@ -792,7 +817,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     # EVENTO CERRAR SESIÓN
     btn_logout.click(fn=None, js="() => { window.location.href = '/logout'; }")
 
-    # CARGA AUTOMÁTICA DEL ESTADO DE CUENTA AL ENTRAR
+    # CARGA AUTOMÁTICA DEL ESTADO DE CUENTA
     demo.load(fn=render_account_status, inputs=None, outputs=account_status_view)
 
     # EVENTOS PRINCIPALES
@@ -807,10 +832,11 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
 
     btn_refresh_projects.click(fn=lambda h: h or [], inputs=[project_history], outputs=projects_list)
 
+    # MUESTRA DE VOZ (CORREGIDO)
     btn_test_voice.click(
-        fn=lambda v: fn_main_editor("Hello! This is a test sample demonstrating the natural human inflection of this voice.", v, "1.0x (Normal)", 0, 0, [])[0],
+        fn=fn_test_voice_sample,
         inputs=sample_voice,
-        outputs=sample_audio
+        outputs=[sample_audio, sample_status]
     )
 
     btn_gen_podcast.click(
