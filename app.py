@@ -7,18 +7,35 @@ import time
 import re
 
 # =========================================================
-# 1. BASE DE USUARIOS AUTORIZADOS
+# 1. BASE DE USUARIOS Y ROLES
 # =========================================================
+ADMIN_USERNAMES = ["admin_pro"]
+
 USERS_DATABASE = [
-    ("admin", "Admin2026*Pro"),
-    ("creador", "VozPro2026!"),
-    ("estudio", "AudioStudio#77")
+    ("admin_pro", "TTS_MasterKey#2026!"),     # 👑 Acceso 100% Ilimitado (Tú)
+    ("invitado_vip", "VozStudio2026*Open")     # 👤 Invitados (Máx. 5.000 palabras)
 ]
+
+GUEST_MAX_WORDS = 5000  # Límite para invitados
+
+def check_user_access(request: gr.Request):
+    """Identifica el usuario activo y determina si tiene acceso ilimitado."""
+    username = getattr(request, "username", "admin_pro")
+    is_admin = username in ADMIN_USERNAMES
+    badge = "👑 Modo Admin Ilimitado" if is_admin else "👤 Modo Invitado (Máx. 5.000 palabras)"
+    return is_admin, badge
+
+def count_words(text: str) -> int:
+    """Cuenta el número de palabras reales en un texto."""
+    if not text:
+        return 0
+    return len(text.strip().split())
 
 # =========================================================
 # 2. CATÁLOGO DE VOCES NEURONALES HD
 # =========================================================
 VOICES = {
+    # 🇺🇸 Voces Multilingües Ultra-Realistas
     "🇺🇸 Andrew Multilingual (Podcast / Cálida)": "en-US-AndrewMultilingualNeural",
     "🇺🇸 Jenny Multilingual (Conversacional / Expresiva)": "en-US-JennyMultilingualNeural",
     "🇺🇸 Ava Multilingual (Joven / Dinámica)": "en-US-AvaMultilingualNeural",
@@ -26,6 +43,8 @@ VOICES = {
     "🇺🇸 Emma Multilingual (Audiolibros / Suave)": "en-US-EmmaMultilingualNeural",
     "🇺🇸 Guy Neural (Casual / YouTube)": "en-US-GuyNeural",
     "🇺🇸 Aria Neural (Locución de Estudio)": "en-US-AriaNeural",
+    
+    # 🇲🇽 🇪🇸 🇨🇴 Voces en Español
     "🇲🇽 Dalia Neural (México / Expresiva)": "es-MX-DaliaNeural",
     "🇲🇽 Jorge Neural (México / Radio y Noticias)": "es-MX-JorgeNeural",
     "🇪🇸 Álvaro Neural (España / Corporativo)": "es-ES-AlvaroNeural",
@@ -42,7 +61,7 @@ SPEEDS = {
 }
 
 # =========================================================
-# MOTOR DE SÍNTESIS ROBUSTO
+# MOTOR DE SÍNTESIS CORE
 # =========================================================
 async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0):
     if not text or not text.strip():
@@ -68,13 +87,19 @@ async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0)
     return buffer.getvalue()
 
 # =========================================================
-# FUNCIONES PRINCIPALES
+# CONTROLADORES DE FUNCIONES
 # =========================================================
 
 # 1. Editor Principal
-async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, history):
+async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, history, request: gr.Request):
     if not text or not text.strip():
-        return None, history, "⚠️ Escribe algún texto antes de generar el audio."
+        return None, history, "⚠️ Por favor escribe algún texto en el editor."
+    
+    is_admin, badge = check_user_access(request)
+    words = count_words(text)
+    
+    if not is_admin and words > GUEST_MAX_WORDS:
+        return None, history, f"⚠️ [{badge}] Tu texto tiene **{words:,} palabras**. El límite para invitados es de {GUEST_MAX_WORDS:,} palabras por generación."
     
     voice_id = VOICES.get(voice_label, "en-US-AndrewMultilingualNeural")
     speed_val = SPEEDS.get(speed_label, 0)
@@ -92,14 +117,20 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
         history = history or []
         history.insert(0, [title, voice_label, filename, time.strftime("%H:%M:%S")])
         
-        return filename, history, f"✅ Audio generado con éxito ({len(text)} caracteres)."
+        return filename, history, f"✅ [{badge}] Audio generado con éxito ({words:,} palabras / {len(text):,} caracteres)."
     except Exception as e:
         return None, history, f"❌ Error: {str(e)}"
 
-# 2. Podcast Studio (Conexión directa y concatenación segura)
-async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
+# 2. Podcast Studio
+async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, request: gr.Request):
     if not script or not script.strip():
         return None, "⚠️ El guión de podcast está vacío."
+    
+    is_admin, badge = check_user_access(request)
+    words = count_words(script)
+    
+    if not is_admin and words > GUEST_MAX_WORDS:
+        return None, f"⚠️ [{badge}] El guión tiene **{words:,} palabras**. El límite para invitados es de {GUEST_MAX_WORDS:,} palabras."
     
     voice_a = VOICES.get(voice_a_label, "en-US-AndrewMultilingualNeural")
     voice_b = VOICES.get(voice_b_label, "en-US-JennyMultilingualNeural")
@@ -107,7 +138,7 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
     
     lines = [l.strip() for l in script.strip().split("\n") if l.strip()]
     if not lines:
-        return None, "⚠️ No se encontraron líneas de diálogo válidas."
+        return None, "⚠️ No se detectaron líneas de diálogo válidas."
     
     final_audio = io.BytesIO()
     processed_count = 0
@@ -119,9 +150,8 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
                 content = content.strip()
                 if not content:
                     continue
-                
                 tag_low = tag.lower()
-                if any(k in tag_low for k in ["2", "guest", "invitado", "jenny", "locutor 2", "speaker 2"]):
+                if any(k in tag_low for k in ["2", "guest", "invitado", "jenny", "locutor 2"]):
                     selected_voice = voice_b
                 else:
                     selected_voice = voice_a
@@ -133,8 +163,7 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
             if chunk:
                 final_audio.write(chunk)
                 processed_count += 1
-            
-            await asyncio.sleep(0.05)  # Estabilidad de flujo
+            await asyncio.sleep(0.04)
             
         audio_data = final_audio.getvalue()
         if not audio_data:
@@ -144,21 +173,27 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label):
         with open(filename, "wb") as f:
             f.write(audio_data)
             
-        return filename, f"✅ Podcast compilado con éxito ({processed_count} diálogos procesados)."
+        return filename, f"✅ [{badge}] Podcast compilado con éxito ({processed_count} intervenciones / {words:,} palabras)."
     except Exception as e:
         return None, f"❌ Error durante la compilación: {str(e)}"
 
 # 3. Narración de Libros
-async def fn_book_narration(book_text, voice_label, speed_label):
+async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Request):
     if not book_text or not book_text.strip():
-        return None, "⚠️ Pega el contenido del libro o texto largo."
+        return None, "⚠️ Pega el contenido del libro o capítulo."
+    
+    is_admin, badge = check_user_access(request)
+    words = count_words(book_text)
+    
+    if not is_admin and words > GUEST_MAX_WORDS:
+        return None, f"⚠️ [{badge}] El texto contiene **{words:,} palabras**. El límite para invitados es de {GUEST_MAX_WORDS:,} palabras."
     
     voice_id = VOICES.get(voice_label, "es-ES-ElviraNeural")
     speed_val = SPEEDS.get(speed_label, 0)
     
     paragraphs = [p.strip() for p in book_text.split("\n") if p.strip()]
     if not paragraphs:
-        return None, "⚠️ No hay texto para procesar."
+        return None, "⚠️ No se encontraron párrafos válidos."
         
     merged_audio = io.BytesIO()
     
@@ -167,20 +202,26 @@ async def fn_book_narration(book_text, voice_label, speed_label):
             chunk = await core_synthesize(p, voice_id, speed_val)
             if chunk:
                 merged_audio.write(chunk)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.04)
                 
         filename = f"audiolibro_{int(time.time())}.mp3"
         with open(filename, "wb") as f:
             f.write(merged_audio.getvalue())
             
-        return filename, f"✅ Audiolibro compilado ({len(paragraphs)} párrafos)."
+        return filename, f"✅ [{badge}] Audiolibro compilado con éxito ({len(paragraphs)} párrafos / {words:,} palabras)."
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# 4. Locución para Video + Subtítulos .SRT
-async def fn_video_voiceover(text, voice_label, style_speed):
+# 4. Locución para Video + .SRT
+async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request):
     if not text or not text.strip():
-        return None, None, "⚠️ Ingresa el guión para video."
+        return None, None, "⚠️ Ingresa el guión para el video."
+    
+    is_admin, badge = check_user_access(request)
+    words = count_words(text)
+    
+    if not is_admin and words > GUEST_MAX_WORDS:
+        return None, None, f"⚠️ [{badge}] Guión de **{words:,} palabras** excede el límite de {GUEST_MAX_WORDS:,} palabras para invitados."
     
     speed_mapping = {
         "⚡ Dinámico / YouTube (+15%)": 15,
@@ -218,7 +259,7 @@ async def fn_video_voiceover(text, voice_label, style_speed):
         with open(srt_file, "w", encoding="utf-8") as f:
             f.write(srt_content)
             
-        return mp3_file, srt_file, "✅ Locución y subtítulos (.SRT) generados."
+        return mp3_file, srt_file, f"✅ [{badge}] Locución y subtítulos sincronizados generados ({words:,} palabras)."
     except Exception as e:
         return None, None, f"❌ Error: {str(e)}"
 
@@ -240,7 +281,7 @@ def clear_all_media_files():
     return [], f"🧹 Se eliminaron {count} archivos temporales.", []
 
 # =========================================================
-# DISEÑO VISUAL
+# DISEÑO VISUAL PROFESIONAL
 # =========================================================
 custom_css = """
 :root, html, body, .dark, .gradio-container, .gradio-container * {
@@ -412,7 +453,7 @@ footer { visibility: hidden !important; }
 """
 
 # =========================================================
-# INTERFAZ DE USUARIO
+# INTERFAZ GRADIO
 # =========================================================
 with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     
@@ -444,7 +485,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
             btn_nav_downloads = gr.Button("📥 Descargar MP3", elem_classes=["nav-btn"])
             btn_nav_settings = gr.Button("⚙️ Preferencias", elem_classes=["nav-btn"])
 
-        # CONTENIDO PRINCIPAL
+        # CONTENIDO
         with gr.Column(elem_classes=["content-area"]):
             
             # 1. Editor
@@ -489,7 +530,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     btn_test_voice = gr.Button("🔊 Escuchar Muestra", variant="primary", scale=1)
                 sample_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player"])
 
-            # 4. Podcast Studio (Reproductor ubicado directamente debajo del botón)
+            # 4. Podcast Studio
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_podcast:
                 gr.Markdown("### 🎧 Podcast Studio (2 Voces Conversacionales)")
                 with gr.Row():
