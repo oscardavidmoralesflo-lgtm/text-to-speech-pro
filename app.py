@@ -7,27 +7,35 @@ import time
 import re
 
 # =========================================================
-# 1. BASE DE USUARIOS Y ROLES
+# 1. BASE DE USUARIOS Y CONTROL DE ACCESO
 # =========================================================
 ADMIN_USERNAMES = ["admin_pro"]
 
 USERS_DATABASE = [
-    ("admin_pro", "TTS_MasterKey#2026!"),     # 👑 Acceso 100% Ilimitado (Tú)
-    ("invitado_vip", "VozStudio2026*Open")     # 👤 Invitados (Máx. 5.000 palabras)
+    ("admin_pro", "TTS_MasterKey#2026!"),     # 👑 Acceso Total Ilimitado (Tú)
+    ("invitado_vip", "VozStudio2026*Open")     # 👤 Acceso Invitado (Restringido)
 ]
 
-GUEST_MAX_WORDS = 5000
+# LÍMITES PARA CUENTAS DE INVITADOS
+GUEST_MAX_CHARS_EDITOR = 2000      # 2.000 caracteres en el editor
+GUEST_MAX_WORDS_PODCAST = 1400     # ~10 minutos de audio (~140 palabras por minuto)
+GUEST_MAX_CHARS_PODCAST = 8500     # ~10 minutos en caracteres
+
+PRO_UPGRADE_MSG = (
+    "🔒 **Función Exclusiva PRO**\n\n"
+    "Esta herramienta requiere una suscripción activa a la versión **PRO** sin restricciones.\n\n"
+    "👉 **¿Deseas desbloquear acceso ilimitado?** Ponte en contacto directamente con el desarrollador para activar tu cuenta."
+)
 
 def check_user_access(request: gr.Request):
+    """Verifica si el usuario actual es Administrador o Invitado."""
     username = getattr(request, "username", "admin_pro")
     is_admin = username in ADMIN_USERNAMES
-    badge = "👑 Modo Admin Ilimitado" if is_admin else "👤 Modo Invitado (Máx. 5.000 palabras)"
+    badge = "👑 Modo Admin Ilimitado" if is_admin else "👤 Modo Invitado"
     return is_admin, badge, username
 
 def count_words(text: str) -> int:
-    if not text:
-        return 0
-    return len(text.strip().split())
+    return len(text.strip().split()) if text else 0
 
 # =========================================================
 # 2. CATÁLOGO DE VOCES NEURONALES OFICIALES
@@ -60,7 +68,6 @@ SPEEDS = {
 }
 
 def resolve_voice_id(label_or_id: str, default: str = "en-US-AndrewNeural") -> str:
-    """Resuelve con total seguridad el ID de voz compatible."""
     if not label_or_id:
         return default
     if label_or_id in VOICES.values():
@@ -87,7 +94,7 @@ def resolve_voice_id(label_or_id: str, default: str = "en-US-AndrewNeural") -> s
     return default
 
 # =========================================================
-# MOTOR DE SÍNTESIS CORE (SIN ERRORES DE PARÁMETROS)
+# MOTOR DE SÍNTESIS ROBUSTO (SIN ERRORES DE PARÁMETROS)
 # =========================================================
 async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0):
     if not text or not text.strip():
@@ -117,19 +124,24 @@ async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0)
     return buffer.getvalue()
 
 # =========================================================
-# CONTROLADORES DE FUNCIONES
+# FUNCIONES PRINCIPALES Y CONTROL POR NIVELES
 # =========================================================
 
-# 1. Editor Principal
+# 1. Editor Principal (Invitados: Máx 2.000 caracteres)
 async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, history, request: gr.Request):
     if not text or not text.strip():
         return None, history, "⚠️ Escribe algún texto en el editor."
     
     is_admin, badge, _ = check_user_access(request)
-    words = count_words(text)
+    char_count = len(text)
     
-    if not is_admin and words > GUEST_MAX_WORDS:
-        return None, history, f"⚠️ [{badge}] Tu texto tiene **{words:,} palabras**. Límite de invitado: {GUEST_MAX_WORDS:,} palabras."
+    if not is_admin and char_count > GUEST_MAX_CHARS_EDITOR:
+        return (
+            None, 
+            history, 
+            f"⚠️ **[{badge}] Límite superado:** Tu texto contiene **{char_count:,} caracteres** (el límite gratuito es de {GUEST_MAX_CHARS_EDITOR:,} caracteres).\n\n"
+            f"🚀 **Para generar textos largos sin límite, actualiza a la versión PRO contactando al desarrollador.**"
+        )
     
     voice_id = resolve_voice_id(voice_label, "en-US-AndrewNeural")
     speed_val = SPEEDS.get(speed_label, 0)
@@ -137,7 +149,7 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
     try:
         audio_bytes = await core_synthesize(text, voice_id, speed_val, pitch_pref, vol_pref)
         if not audio_bytes:
-            return None, history, "⚠️ No se pudo procesar el audio. Verifica tu conexión."
+            return None, history, "⚠️ No se pudo procesar el audio. Verifica el texto."
         
         filename = f"audio_script_{int(time.time())}.mp3"
         with open(filename, "wb") as f:
@@ -147,20 +159,27 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
         history = history or []
         history.insert(0, [title, voice_label, filename, time.strftime("%H:%M:%S")])
         
-        return filename, history, f"✅ [{badge}] Audio generado con éxito ({words:,} palabras / {len(text):,} caracteres)."
+        return filename, history, f"✅ [{badge}] Audio generado con éxito ({char_count:,} caracteres / {count_words(text):,} palabras)."
     except Exception as e:
         return None, history, f"❌ Error: {str(e)}"
 
-# 2. Podcast Studio (2 Voces)
+# 2. Podcast Studio (Invitados: Máximo 10 Minutos)
 async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, request: gr.Request):
     if not script or not script.strip():
         return None, "⚠️ El guión de podcast está vacío."
     
     is_admin, badge, _ = check_user_access(request)
     words = count_words(script)
+    chars = len(script)
     
-    if not is_admin and words > GUEST_MAX_WORDS:
-        return None, f"⚠️ [{badge}] El guión tiene **{words:,} palabras**. Límite de invitado: {GUEST_MAX_WORDS:,} palabras."
+    # Validación del límite de 10 minutos para invitados
+    if not is_admin and (words > GUEST_MAX_WORDS_PODCAST or chars > GUEST_MAX_CHARS_PODCAST):
+        return (
+            None, 
+            f"⚠️ **[{badge}] Límite de 10 Minutos Alcanzado**\n\n"
+            f"Tu guión tiene **{words:,} palabras ({chars:,} caracteres)**, lo que supera el límite de creación de 10 minutos para cuentas de invitado.\n\n"
+            f"🎙️ **¿Deseas compilar podcasts de larga duración sin cortes?** Actualiza a la versión **PRO** contactando directamente al desarrollador."
+        )
     
     voice_a = resolve_voice_id(voice_a_label, "en-US-AndrewNeural")
     voice_b = resolve_voice_id(voice_b_label, "en-US-JennyNeural")
@@ -207,16 +226,16 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, r
     except Exception as e:
         return None, f"❌ Error durante la compilación: {str(e)}"
 
-# 3. Narración de Libros
+# 3. Narración de Libros (Exclusivo PRO)
 async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Request):
     if not book_text or not book_text.strip():
         return None, "⚠️ Pega el contenido del libro o capítulo."
     
     is_admin, badge, _ = check_user_access(request)
-    words = count_words(book_text)
     
-    if not is_admin and words > GUEST_MAX_WORDS:
-        return None, f"⚠️ [{badge}] El texto contiene **{words:,} palabras**. Límite de invitado: {GUEST_MAX_WORDS:,} palabras."
+    # Bloqueo total para invitados
+    if not is_admin:
+        return None, PRO_UPGRADE_MSG
     
     voice_id = resolve_voice_id(voice_label, "es-ES-ElviraNeural")
     speed_val = SPEEDS.get(speed_label, 0)
@@ -238,20 +257,20 @@ async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Req
         with open(filename, "wb") as f:
             f.write(merged_audio.getvalue())
             
-        return filename, f"✅ [{badge}] Audiolibro compilado ({len(paragraphs)} párrafos / {words:,} palabras)."
+        return filename, f"✅ [{badge}] Audiolibro compilado ({len(paragraphs)} párrafos / {count_words(book_text):,} palabras)."
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# 4. Locución para Video + .SRT
+# 4. Locución para Video + .SRT (Exclusivo PRO)
 async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request):
     if not text or not text.strip():
         return None, None, "⚠️ Ingresa el guión para el video."
     
     is_admin, badge, _ = check_user_access(request)
-    words = count_words(text)
     
-    if not is_admin and words > GUEST_MAX_WORDS:
-        return None, None, f"⚠️ [{badge}] Límite de {GUEST_MAX_WORDS:,} palabras excedido."
+    # Bloqueo total para invitados
+    if not is_admin:
+        return None, None, PRO_UPGRADE_MSG
     
     speed_mapping = {
         "⚡ Dinámico / YouTube (+15%)": 15,
@@ -289,17 +308,26 @@ async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request
         with open(srt_file, "w", encoding="utf-8") as f:
             f.write(srt_content)
             
-        return mp3_file, srt_file, f"✅ [{badge}] Locución y subtítulos sincronizados generados ({words:,} palabras)."
+        return mp3_file, srt_file, f"✅ [{badge}] Locución y subtítulos sincronizados generados con éxito."
     except Exception as e:
         return None, None, f"❌ Error: {str(e)}"
 
-# 5. Gestor de Archivos
-def get_all_media_files():
+# 5. Gestor de Archivos (Centro de Descargas)
+def get_all_media_files(request: gr.Request):
+    is_admin, _, _ = check_user_access(request)
     files = [f for f in os.listdir(".") if f.endswith(".mp3") or f.endswith(".srt")]
     files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-    return files
+    
+    if not is_admin:
+        # En modo invitado solo se listan los últimos 3 archivos recientes
+        return files[:3], "ℹ️ *Modo Invitado: Mostrando tus 3 archivos más recientes. Actualiza a PRO para historial completo.*"
+    return files, "✅ *Historial completo de archivos (Modo Admin).*"
 
-def clear_all_media_files():
+def clear_all_media_files(request: gr.Request):
+    is_admin, _, _ = check_user_access(request)
+    if not is_admin:
+        return [], "⚠️ Solo los administradores PRO pueden purgar el almacenamiento.", []
+    
     count = 0
     for f in os.listdir("."):
         if (f.endswith(".mp3") or f.endswith(".srt")) and not f.startswith("sample_"):
@@ -311,7 +339,7 @@ def clear_all_media_files():
     return [], f"🧹 Se eliminaron {count} archivos temporales.", []
 
 # =========================================================
-# DISEÑO VISUAL
+# DISEÑO VISUAL PROFESIONAL
 # =========================================================
 custom_css = """
 :root, html, body, .dark, .gradio-container, .gradio-container * {
@@ -495,6 +523,17 @@ footer { visibility: hidden !important; }
     font-weight: 600 !important;
     color: #475569 !important;
 }
+
+.pro-badge {
+    background: #fef3c7;
+    color: #d97706;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin-left: 6px;
+    text-transform: uppercase;
+}
 """
 
 # =========================================================
@@ -508,7 +547,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     
     with gr.Row(elem_classes=["app-layout"]):
         
-        # SIDEBAR
+        # BARRA LATERAL
         with gr.Column(elem_classes=["sidebar-panel"], scale=0, min_width=260):
             with gr.Column():
                 gr.HTML("""
@@ -524,8 +563,8 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 
                 gr.HTML('<div class="menu-section">Creación Rápida</div>')
                 btn_nav_podcast = gr.Button("🎧 Podcast Studio (2 Voces)", elem_classes=["nav-btn"])
-                btn_nav_book = gr.Button("📖 Narración de Libros", elem_classes=["nav-btn"])
-                btn_nav_video = gr.Button("🎬 Locución para Video", elem_classes=["nav-btn"])
+                btn_nav_book = gr.Button("📖 Narración de Libros (PRO)", elem_classes=["nav-btn"])
+                btn_nav_video = gr.Button("🎬 Locución para Video (PRO)", elem_classes=["nav-btn"])
                 
                 gr.HTML('<div class="menu-section">Exportación & Ajustes</div>')
                 btn_nav_downloads = gr.Button("📥 Descargar MP3", elem_classes=["nav-btn"])
@@ -534,12 +573,12 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
             with gr.Column():
                 btn_logout = gr.Button("🚪 Cerrar Sesión", elem_classes=["nav-btn", "logout-btn"])
 
-        # CONTENIDO
+        # CONTENIDO PRINCIPAL
         with gr.Column(elem_classes=["content-area"]):
             
-            # 1. Editor
+            # 1. Editor (Máx 2.000 caracteres para invitados)
             with gr.Column(visible=True, elem_classes=["card-box"]) as view_editor:
-                gr.Markdown("### 📝 Editor de Guión")
+                gr.Markdown("### 📝 Editor de Guión *(Gratuito hasta 2.000 caracteres / Ilimitado PRO)*")
                 with gr.Row(elem_classes=["top-bar-controls"]):
                     main_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Andrew (Podcast / Cálida)", show_label=False, scale=3)
                     main_play_btn = gr.Button("▶", elem_classes=["btn-play-hero"])
@@ -549,7 +588,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 main_status = gr.Markdown("")
                 
                 main_text = gr.Textbox(
-                    placeholder="Escribe o pega aquí tu guión...",
+                    placeholder="Escribe o pega aquí tu guión (hasta 2.000 caracteres en modo invitado)...",
                     show_label=False,
                     lines=8,
                     value="Welcome to Text to Speech Pro. This platform converts your text into ultra-realistic, studio-quality speech using advanced deep learning models. Click Play and listen to the natural human inflection.",
@@ -561,7 +600,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     t2 = gr.Button("🎙️ Intro Podcast", elem_classes=["template-pill"])
                     t3 = gr.Button("🇲🇽 Narración Español", elem_classes=["template-pill"])
 
-            # 2. Proyectos
+            # 2. Proyectos Guardados
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_projects:
                 gr.Markdown("### 📂 Mis Proyectos Guardados")
                 projects_list = gr.Dataframe(
@@ -571,7 +610,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 )
                 btn_refresh_projects = gr.Button("🔄 Actualizar Tabla de Proyectos", variant="secondary")
 
-            # 3. Voces
+            # 3. Catálogo de Voces
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_voices:
                 gr.Markdown("### 🎙️ Catálogo de Voces Neuronales HD")
                 with gr.Row():
@@ -579,9 +618,9 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     btn_test_voice = gr.Button("🔊 Escuchar Muestra", variant="primary", scale=1)
                 sample_audio = gr.Audio(show_label=False, elem_classes=["custom-audio-player"])
 
-            # 4. Podcast Studio
+            # 4. Podcast Studio (Máximo 10 minutos para invitados)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_podcast:
-                gr.Markdown("### 🎧 Podcast Studio (2 Voces Conversacionales)")
+                gr.Markdown("### 🎧 Podcast Studio (2 Voces) *(Hasta 10 min Invitados / Ilimitado PRO)*")
                 with gr.Row():
                     pod_v1 = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Andrew (Podcast / Cálida)", label="Locutor 1 (Host)")
                     pod_v2 = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Jenny (Conversacional / Expresiva)", label="Locutor 2 (Invitado)")
@@ -601,41 +640,41 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 pod_status = gr.Markdown("")
                 pod_audio = gr.Audio(label="Audio del Podcast Completo", show_label=True, elem_classes=["custom-audio-player"])
 
-            # 5. Libros
+            # 5. Narración de Libros (Función PRO)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_book:
-                gr.Markdown("### 📖 Narración de Libros y Textos Extensos")
+                gr.Markdown("### 📖 Narración de Libros y Textos Extensos <span class='pro-badge'>PRO</span>")
                 with gr.Row():
                     book_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇪🇸 Elvira (España / Narrativa)", label="Voz de Narrador")
                     book_speed = gr.Dropdown(choices=list(SPEEDS.keys()), value="1.0x (Normal)", label="Velocidad")
                 
-                book_text = gr.Textbox(label="Contenido del Libro", lines=8, placeholder="Pega aquí capítulos completos...")
+                book_text = gr.Textbox(label="Contenido del Libro", lines=8, placeholder="Pega aquí capítulos completos sin límites (Exclusivo usuarios PRO)...")
                 btn_sample_book = gr.Button("📖 Cargar Texto de Muestra", elem_classes=["template-pill"])
-                btn_gen_book = gr.Button("📚 Generar Audiolibro Completo", variant="primary")
+                btn_gen_book = gr.Button("📚 Generar Audiolibro Completo (Solo PRO)", variant="primary")
                 book_status = gr.Markdown("")
                 book_audio = gr.Audio(label="Audiolibro Completo", show_label=True, elem_classes=["custom-audio-player"])
 
-            # 6. Video
+            # 6. Locución para Video (Función PRO)
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_video:
-                gr.Markdown("### 🎬 Locución para Video & Creadores")
+                gr.Markdown("### 🎬 Locución para Video & Creadores <span class='pro-badge'>PRO</span>")
                 with gr.Row():
                     vid_voice = gr.Dropdown(choices=list(VOICES.keys()), value="🇺🇸 Guy (Casual / YouTube)", label="Voz de Locución")
                     vid_style = gr.Dropdown(choices=["⚡ Dinámico / YouTube (+15%)", "🗣️ Comercial / Estándar (0%)", "🎬 Documental / Pausado (-10%)"], value="⚡ Dinámico / YouTube (+15%)", label="Estilo de Locución")
                 
                 vid_text = gr.Textbox(label="Guión del Video", lines=5, value="In this video, I will show you how to generate realistic neural voiceovers in seconds. Make sure to hit that subscribe button!")
-                btn_gen_video = gr.Button("🎬 Generar Locución y Subtítulos .SRT", variant="primary")
+                btn_gen_video = gr.Button("🎬 Generar Locución y Subtítulos .SRT (Solo PRO)", variant="primary")
                 vid_status = gr.Markdown("")
                 with gr.Row():
                     vid_audio = gr.Audio(label="Audio MP3", show_label=True)
                     vid_srt = gr.File(label="Subtítulos .SRT")
 
-            # 7. Descargas
+            # 7. Centro de Descargas
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_downloads:
                 gr.Markdown("### 📥 Centro de Exportación y Descargas")
+                dl_status = gr.Markdown("Archivos listos para su descarga:")
                 dl_files = gr.File(label="Archivos Disponibles", file_count="multiple", interactive=False)
-                dl_status = gr.Markdown("")
                 with gr.Row():
                     btn_refresh_dl = gr.Button("🔄 Actualizar Lista de Archivos", variant="secondary")
-                    btn_clean_dl = gr.Button("🗑️ Limpiar Archivos Temporales", variant="stop")
+                    btn_clean_dl = gr.Button("🗑️ Limpiar Archivos Temporales (Solo PRO)", variant="stop")
 
             # 8. Preferencias
             with gr.Column(visible=False, elem_classes=["card-box"]) as view_settings:
@@ -660,7 +699,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     btn_nav_downloads.click(fn=lambda: switch_tab(6), outputs=all_views)
     btn_nav_settings.click(fn=lambda: switch_tab(7), outputs=all_views)
 
-    # EVENTO CERRAR SESIÓN (LOGOUT DIRECTO)
+    # EVENTO CERRAR SESIÓN
     btn_logout.click(fn=None, js="() => { window.location.href = '/logout'; }")
 
     # EVENTOS PRINCIPALES
@@ -711,7 +750,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
         outputs=[vid_audio, vid_srt, vid_status]
     )
 
-    btn_refresh_dl.click(fn=get_all_media_files, outputs=dl_files)
+    btn_refresh_dl.click(fn=get_all_media_files, outputs=[dl_files, dl_status])
     btn_clean_dl.click(fn=clear_all_media_files, outputs=[dl_files, dl_status, project_history])
 
     btn_save_settings.click(
