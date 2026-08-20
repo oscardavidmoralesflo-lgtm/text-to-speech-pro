@@ -5,7 +5,6 @@ import os
 import io
 import time
 
-# Catálogo de Voces Neuronales HD
 VOICES = {
     "🇺🇸 Andrew Multilingual (Podcast / Cálida)": "en-US-AndrewMultilingualNeural",
     "🇺🇸 Jenny Multilingual (Conversacional / Expresiva)": "en-US-JennyMultilingualNeural",
@@ -344,7 +343,7 @@ footer { visibility: hidden !important; }
 }
 """
 
-with gr.Blocks(css=custom_css, title="Text to Speech Pro Studio") as demo:
+with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     
     project_history = gr.State([])
     pref_pitch = gr.State(0)
@@ -510,5 +509,6 @@ with gr.Blocks(css=custom_css, title="Text to Speech Pro Studio") as demo:
     btn_save_settings.click(fn=lambda p, v: (p, v, "✅ Preferencias guardadas correctamente."), inputs=[set_pitch, set_volume], outputs=[pref_pitch, pref_volume, set_status])
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7860))
+    # Render asigna el puerto 10000 por defecto
+    port = int(os.environ.get("PORT", 10000))
     demo.launch(server_name="0.0.0.0", server_port=port)
