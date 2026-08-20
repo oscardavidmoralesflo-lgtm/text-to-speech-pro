@@ -18,7 +18,7 @@ USERS_DATABASE = [
 
 # LÍMITES PARA CUENTAS DE INVITADOS
 GUEST_MAX_CHARS_EDITOR = 2000      # 2.000 caracteres en el editor
-GUEST_MAX_WORDS_PODCAST = 1400     # ~10 minutos de audio (~140 palabras por minuto)
+GUEST_MAX_WORDS_PODCAST = 1400     # ~10 minutos de audio
 GUEST_MAX_CHARS_PODCAST = 8500     # ~10 minutos en caracteres
 
 PRO_UPGRADE_MSG = (
@@ -36,6 +36,31 @@ def check_user_access(request: gr.Request):
 
 def count_words(text: str) -> int:
     return len(text.strip().split()) if text else 0
+
+def render_account_status(request: gr.Request):
+    """Genera la tarjeta visual del estado de cuenta en la barra lateral."""
+    is_admin, _, username = check_user_access(request)
+    if is_admin:
+        return f"""
+        <div class="account-card pro-card">
+            <div class="account-badge pro-tag">👑 PRO ILIMITADO</div>
+            <div class="account-user">Usuario: <b>{username}</b></div>
+            <div class="account-details">Acceso total sin límites a todos los módulos y voces.</div>
+        </div>
+        """
+    else:
+        return f"""
+        <div class="account-card guest-card">
+            <div class="account-badge guest-tag">👤 INVITADO LIMITADO</div>
+            <div class="account-user">Usuario: <b>{username}</b></div>
+            <div class="account-details">
+                • Editor: máx. 2.000 caracteres<br>
+                • Podcast: máx. 10 minutos<br>
+                • Libros / Video: Bloqueados (Solo PRO)
+            </div>
+            <div class="account-upgrade">Para actualizar a PRO, contacta al desarrollador.</div>
+        </div>
+        """
 
 # =========================================================
 # 2. CATÁLOGO DE VOCES NEURONALES OFICIALES
@@ -94,7 +119,7 @@ def resolve_voice_id(label_or_id: str, default: str = "en-US-AndrewNeural") -> s
     return default
 
 # =========================================================
-# MOTOR DE SÍNTESIS ROBUSTO (SIN ERRORES DE PARÁMETROS)
+# MOTOR DE SÍNTESIS ROBUSTO
 # =========================================================
 async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0):
     if not text or not text.strip():
@@ -124,10 +149,10 @@ async def core_synthesize(text, voice_id, rate_val=0, pitch_val=0, volume_val=0)
     return buffer.getvalue()
 
 # =========================================================
-# FUNCIONES PRINCIPALES Y CONTROL POR NIVELES
+# FUNCIONES PRINCIPALES
 # =========================================================
 
-# 1. Editor Principal (Invitados: Máx 2.000 caracteres)
+# 1. Editor Principal
 async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, history, request: gr.Request):
     if not text or not text.strip():
         return None, history, "⚠️ Escribe algún texto en el editor."
@@ -163,7 +188,7 @@ async def fn_main_editor(text, voice_label, speed_label, pitch_pref, vol_pref, h
     except Exception as e:
         return None, history, f"❌ Error: {str(e)}"
 
-# 2. Podcast Studio (Invitados: Máximo 10 Minutos)
+# 2. Podcast Studio
 async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, request: gr.Request):
     if not script or not script.strip():
         return None, "⚠️ El guión de podcast está vacío."
@@ -172,13 +197,12 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, r
     words = count_words(script)
     chars = len(script)
     
-    # Validación del límite de 10 minutos para invitados
     if not is_admin and (words > GUEST_MAX_WORDS_PODCAST or chars > GUEST_MAX_CHARS_PODCAST):
         return (
             None, 
             f"⚠️ **[{badge}] Límite de 10 Minutos Alcanzado**\n\n"
-            f"Tu guión tiene **{words:,} palabras ({chars:,} caracteres)**, lo que supera el límite de creación de 10 minutos para cuentas de invitado.\n\n"
-            f"🎙️ **¿Deseas compilar podcasts de larga duración sin cortes?** Actualiza a la versión **PRO** contactando directamente al desarrollador."
+            f"Tu guión tiene **{words:,} palabras ({chars:,} caracteres)**, superando el límite de 10 minutos para cuentas de invitado.\n\n"
+            f"🎙️ **¿Deseas compilar podcasts extensos sin cortes?** Actualiza a la versión **PRO** contactando directamente al desarrollador."
         )
     
     voice_a = resolve_voice_id(voice_a_label, "en-US-AndrewNeural")
@@ -226,14 +250,13 @@ async def fn_podcast_studio(script, voice_a_label, voice_b_label, speed_label, r
     except Exception as e:
         return None, f"❌ Error durante la compilación: {str(e)}"
 
-# 3. Narración de Libros (Exclusivo PRO)
+# 3. Narración de Libros (PRO)
 async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Request):
     if not book_text or not book_text.strip():
         return None, "⚠️ Pega el contenido del libro o capítulo."
     
     is_admin, badge, _ = check_user_access(request)
     
-    # Bloqueo total para invitados
     if not is_admin:
         return None, PRO_UPGRADE_MSG
     
@@ -261,14 +284,13 @@ async def fn_book_narration(book_text, voice_label, speed_label, request: gr.Req
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
-# 4. Locución para Video + .SRT (Exclusivo PRO)
+# 4. Locución para Video (PRO)
 async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request):
     if not text or not text.strip():
         return None, None, "⚠️ Ingresa el guión para el video."
     
     is_admin, badge, _ = check_user_access(request)
     
-    # Bloqueo total para invitados
     if not is_admin:
         return None, None, PRO_UPGRADE_MSG
     
@@ -312,16 +334,15 @@ async def fn_video_voiceover(text, voice_label, style_speed, request: gr.Request
     except Exception as e:
         return None, None, f"❌ Error: {str(e)}"
 
-# 5. Gestor de Archivos (Centro de Descargas)
+# 5. Gestor de Archivos
 def get_all_media_files(request: gr.Request):
     is_admin, _, _ = check_user_access(request)
     files = [f for f in os.listdir(".") if f.endswith(".mp3") or f.endswith(".srt")]
     files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
     
     if not is_admin:
-        # En modo invitado solo se listan los últimos 3 archivos recientes
-        return files[:3], "ℹ️ *Modo Invitado: Mostrando tus 3 archivos más recientes. Actualiza a PRO para historial completo.*"
-    return files, "✅ *Historial completo de archivos (Modo Admin).*"
+        return files[:3], "ℹ️ *Modo Invitado: Mostrando tus 3 archivos recientes. Actualiza a PRO para historial completo.*"
+    return files, "✅ *Historial completo de archivos (Modo Admin).* "
 
 def clear_all_media_files(request: gr.Request):
     is_admin, _, _ = check_user_access(request)
@@ -363,7 +384,7 @@ footer { visibility: hidden !important; }
 }
 
 .sidebar-panel {
-    width: 270px;
+    width: 275px;
     background-color: #ffffff !important;
     border-right: 1px solid #e2e8f0 !important;
     padding: 24px 16px;
@@ -377,8 +398,8 @@ footer { visibility: hidden !important; }
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 24px;
-    padding-left: 6px;
+    margin-bottom: 16px;
+    padding-left: 4px;
 }
 
 .brand-icon {
@@ -406,13 +427,79 @@ footer { visibility: hidden !important; }
     color: #4f46e5 !important;
 }
 
+/* Tarjetas de Estado de Usuario */
+.account-card {
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 18px;
+    font-size: 12px;
+    line-height: 1.4;
+    transition: all 0.2s ease;
+}
+
+.pro-card {
+    background: linear-gradient(145deg, #f5f3ff 0%, #ede9fe 100%);
+    border: 1px solid #ddd6fe;
+    color: #4c1d95;
+}
+
+.pro-tag {
+    background: #7c3aed;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 10.5px;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+}
+
+.guest-card {
+    background: linear-gradient(145deg, #fffbeb 0%, #fef3c7 100%);
+    border: 1px solid #fde68a;
+    color: #92400e;
+}
+
+.guest-tag {
+    background: #d97706;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 10.5px;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+}
+
+.account-user {
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.account-details {
+    font-size: 11px;
+    opacity: 0.9;
+    margin-bottom: 4px;
+}
+
+.account-upgrade {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #b45309;
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px dashed #fcd34d;
+}
+
 .menu-section {
     font-size: 11px;
     font-weight: 700;
     color: #94a3b8 !important;
     text-transform: uppercase;
     letter-spacing: 0.6px;
-    margin: 20px 0 8px 10px;
+    margin: 16px 0 8px 10px;
 }
 
 .nav-btn {
@@ -548,7 +635,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     with gr.Row(elem_classes=["app-layout"]):
         
         # BARRA LATERAL
-        with gr.Column(elem_classes=["sidebar-panel"], scale=0, min_width=260):
+        with gr.Column(elem_classes=["sidebar-panel"], scale=0, min_width=270):
             with gr.Column():
                 gr.HTML("""
                     <div class="brand-header">
@@ -556,6 +643,9 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                         <div class="brand-title">Text to Speech <span>Pro</span></div>
                     </div>
                 """)
+                
+                # Componente visual para mostrar el estado del usuario logueado
+                account_status_view = gr.HTML()
                 
                 btn_nav_editor = gr.Button("📝 Nuevo Guión", elem_classes=["nav-btn"])
                 btn_nav_projects = gr.Button("📂 Mis Proyectos", elem_classes=["nav-btn"])
@@ -701,6 +791,9 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
 
     # EVENTO CERRAR SESIÓN
     btn_logout.click(fn=None, js="() => { window.location.href = '/logout'; }")
+
+    # CARGA AUTOMÁTICA DEL ESTADO DE CUENTA AL ENTRAR
+    demo.load(fn=render_account_status, inputs=None, outputs=account_status_view)
 
     # EVENTOS PRINCIPALES
     main_play_btn.click(
