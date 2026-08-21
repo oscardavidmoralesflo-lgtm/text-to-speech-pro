@@ -38,27 +38,20 @@ def count_words(text: str) -> int:
     return len(text.strip().split()) if text else 0
 
 def render_account_status(request: gr.Request):
-    """Genera la tarjeta visual del estado de cuenta en la barra lateral."""
+    """Genera la tarjeta visual limpia del estado de cuenta en la barra lateral."""
     is_admin, _, username = check_user_access(request)
     if is_admin:
         return f"""
         <div class="account-card pro-card">
-            <div class="account-badge pro-tag">👑 PRO ILIMITADO</div>
+            <div class="account-badge pro-tag">👑 PRO</div>
             <div class="account-user">Usuario: <b>{username}</b></div>
-            <div class="account-details">Acceso total sin límites a todos los módulos y voces.</div>
         </div>
         """
     else:
         return f"""
         <div class="account-card guest-card">
-            <div class="account-badge guest-tag">👤 INVITADO LIMITADO</div>
+            <div class="account-badge guest-tag">👤 INVITADO</div>
             <div class="account-user">Usuario: <b>{username}</b></div>
-            <div class="account-details">
-                • Editor: máx. 2.000 caracteres<br>
-                • Podcast: máx. 10 minutos<br>
-                • Libros / Video: Bloqueados (Solo PRO)
-            </div>
-            <div class="account-upgrade">Para actualizar a PRO, contacta al desarrollador.</div>
         </div>
         """
 
@@ -195,7 +188,6 @@ async def fn_test_voice_sample(voice_label):
     
     voice_id = resolve_voice_id(voice_label, "en-US-JennyNeural")
     
-    # Texto de prueba adaptado al idioma de la voz seleccionada
     if any(k in voice_id.lower() for k in ["es-", "dalia", "jorge", "alvaro", "elvira", "gonzalo", "salome"]):
         sample_text = "Hola, esta es una prueba de entonación y claridad natural con tecnología neuronal HD."
     else:
@@ -449,10 +441,6 @@ footer { visibility: hidden !important; }
     letter-spacing: -0.5px;
 }
 
-.brand-title span {
-    color: #4f46e5 !important;
-}
-
 .account-card {
     border-radius: 12px;
     padding: 12px;
@@ -500,22 +488,7 @@ footer { visibility: hidden !important; }
 
 .account-user {
     font-size: 13px;
-    margin-bottom: 4px;
-}
-
-.account-details {
-    font-size: 11px;
-    opacity: 0.9;
-    margin-bottom: 4px;
-}
-
-.account-upgrade {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: #b45309;
-    margin-top: 6px;
-    padding-top: 4px;
-    border-top: 1px dashed #fcd34d;
+    margin-bottom: 0px;
 }
 
 .menu-section {
@@ -651,7 +624,7 @@ footer { visibility: hidden !important; }
 # =========================================================
 # INTERFAZ GRADIO
 # =========================================================
-with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
+with gr.Blocks(title="Text to Speech Studio", css=custom_css) as demo:
     
     project_history = gr.State([])
     pref_pitch = gr.State(0)
@@ -665,7 +638,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                 gr.HTML("""
                     <div class="brand-header">
                         <div class="brand-icon">⚡</div>
-                        <div class="brand-title">Text to Speech <span>Pro</span></div>
+                        <div class="brand-title">Text to Speech</div>
                     </div>
                 """)
                 
@@ -705,7 +678,7 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
                     placeholder="Escribe o pega aquí tu guión (hasta 2.000 caracteres en modo invitado)...",
                     show_label=False,
                     lines=8,
-                    value="Welcome to Text to Speech Pro. This platform converts your text into ultra-realistic, studio-quality speech using advanced deep learning models. Click Play and listen to the natural human inflection.",
+                    value="Welcome to Text to Speech. This platform converts your text into ultra-realistic, studio-quality speech using advanced deep learning models. Click Play and listen to the natural human inflection.",
                     elem_classes=["clean-editor"]
                 )
                 
@@ -828,11 +801,10 @@ with gr.Blocks(title="Text to Speech Pro Studio", css=custom_css) as demo:
     )
     t1.click(fn=lambda: "The ancient lighthouse stood firm against the midnight storm, its radiant beam piercing the dense ocean fog to guide ships safely to harbor.", outputs=main_text)
     t2.click(fn=lambda: "Hey everyone, welcome back to the channel! Today we are exploring the future of generative AI and neural voice synthesis.", outputs=main_text)
-    t3.click(fn=lambda: "Bienvenidos a Text to Speech Pro. Transforma cualquier texto en locuciones claras y fluidas con entonación humana natural.", outputs=main_text)
+    t3.click(fn=lambda: "Bienvenidos a Text to Speech. Transforma cualquier texto en locuciones claras y fluidas con entonación humana natural.", outputs=main_text)
 
     btn_refresh_projects.click(fn=lambda h: h or [], inputs=[project_history], outputs=projects_list)
 
-    # MUESTRA DE VOZ (CORREGIDO)
     btn_test_voice.click(
         fn=fn_test_voice_sample,
         inputs=sample_voice,
@@ -887,5 +859,5 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=port,
         auth=USERS_DATABASE,
-        auth_message="🔒 Acceso Privado - Text to Speech Pro Studio"
+        auth_message="🔒 Acceso Privado - Text to Speech Studio"
     )
